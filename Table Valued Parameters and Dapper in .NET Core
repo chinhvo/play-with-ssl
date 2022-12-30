@@ -1,0 +1,44 @@
+Implementation
+The first thing we need is a user-defined table type in SQL Server to populate with the incoming TVP:
+
+CREATE TYPE TVP_Integer AS TABLE
+    (
+        [Value] INT NULL
+    );
+GO
+Then we create an IEnumerable<SqlDataRecord>, which is much lighter weight than a DataTable:
+
+private static IEnumerable<SqlDataRecord> CreateSqlDataRecord(IEnumerable<int> list)
+{
+	var metaData = new SqlMetaData("Value", SqlDbType.Int);
+	var record = new SqlDataRecord(_metaData);
+	foreach (var item in list)
+	{
+		record.SetInt32(0, item);
+		yield return record;
+	}
+}
+To send this into Dapper we need to use an ICustomQueryParameter which will be used to convert into a TVP. The input values are sent as an int[] array because that’s how we built the list elsewhere in the code. Then we use the AsTableValuedParameter method to make sure the object is the way Dapper needs it:
+
+public static SqlMapper.ICustomQueryParameter GetTableValuedParameter(this int[] list)
+{
+	if (!ValidateList(list))
+	{
+		list = new int[] { };
+	}
+
+	return CreateSqlDataRecord(list).AsTableValuedParameter("TVP_Integer");
+}
+Finally in the data access layer inside the search method, we call it like so:
+
+var parameters = new
+{
+	LocationIds = (locationIds ?? new int[] { }).GetTableValuedParameter()
+};
+
+return await Query<SearchResultTable>("[dbo].[SearchByLocationIds]", parameters).ConfigureAwait(false);
+Dapper uses the table type behind the scenes and inserts all the items from the SqlDataRecord into that table. In your stored procedure you can either do a JOIN or an IN clause, depending on your needs.
+
+If you’re playing along at home, as long as you have the user-defined type in the database this can all be combined into a single C# method. We happened to split it up into extension methods to follow our coding style.
+
+Share your thoughts in the comments below.
